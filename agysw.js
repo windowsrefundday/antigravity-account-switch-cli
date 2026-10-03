@@ -61,9 +61,9 @@ async function refreshAccessToken(refreshToken) {
 
 function writeToKeyring(payloadStr) {
   const platform = os.platform();
-  const base64Payload = `go-keyring-base64:${Buffer.from(payloadStr).toString('base64')}`;
 
   if (platform === 'darwin') {
+    const base64Payload = `go-keyring-base64:${Buffer.from(payloadStr).toString('base64')}`;
     try {
       execSync(`security add-generic-password -a "antigravity" -s "gemini" -w "${base64Payload}" -U`);
     } catch (err) {
@@ -71,7 +71,9 @@ function writeToKeyring(payloadStr) {
     }
   } else if (platform === 'linux') {
     try {
-      execSync(`echo -n "${base64Payload}" | secret-tool store --label="gemini" service gemini username antigravity`);
+      execSync(`secret-tool store --label="Password for 'antigravity' on 'gemini'" service gemini username antigravity`, {
+        input: payloadStr
+      });
     } catch (err) {
       throw new Error(`Linux Secret Service write failed: ${err.message}`);
     }
@@ -95,7 +97,8 @@ async function doSwitch(index, storage) {
         refresh_token: account.refreshToken,
         expiry: expiryDate
       },
-      auth_method: "consumer"
+      auth_method: "consumer",
+      ...(refreshResult.id_token ? { id_token: refreshResult.id_token } : {})
     };
 
     writeToKeyring(JSON.stringify(payload));
@@ -306,6 +309,9 @@ async function triggerBackgroundCheck() {
   
   try {
     const scriptDir = dirname(fileURLToPath(import.meta.url));
+    const isDirty = execSync("git status --porcelain", { cwd: scriptDir, encoding: "utf8" }).trim().length > 0;
+    if (isDirty) return; // preserve local patches
+
     // Silent check if remote changes exist using git fetch & status
     execSync("git fetch", { cwd: scriptDir, stdio: "ignore" });
     const local = execSync("git rev-parse HEAD", { cwd: scriptDir, encoding: "utf8" }).trim();
